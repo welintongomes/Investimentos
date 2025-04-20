@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Controle de Investimentos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+  background-color: #121212;
+  color: #e0e0e0;
+  font-family: 'Segoe UI', sans-serif;
+  padding: 20px;
+  max-width: 1100px;
+  margin: auto;
+}
+
+
+h1, h2, h3 {
+  color: #ffffff;
+  text-align: center;
+}
+
+.input-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 15px;
+  gap: 10px;
+}
+.input-groupi {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 15px;
+  gap: 10px;
+}
+
+.input-group input, .input-group button {
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  font-size: 1em;
+}
+
+input {
+  width: 150px;
+}
+
+button {
+  cursor: pointer;
+  background-color: #1e88e5;
+  color: white;
+}
+
+button:hover {
+  background-color: #1565c0;
+}
+
+ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+li {
+  background: #1e1e1e;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.registro-actions button {
+  margin-top: 10px;
+  background-color: #424242;
+}
+
+.registro-actions button:hover {
+  background-color: #616161;
+}
+
+#estimativas {
+  margin-top: 20px;
+  text-align: center;
+}
+
+
+
+@media (max-width: 600px) {
+  .input-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  input, button {
+    width: 100%;
+  }
+  .registro-actions{
+    width: 30%;
+
+  }
+
+  body {
+    padding: 15px;
+  }
+  .input-groupi {
+    margin-right: 0px;
+    margin-left: 0px;
+    margin-bottom: 8px;
+}
+}
+
+  </style>
+</head>
+<body>
+
+  <h1>Investimentos Diários</h1>
+
+  <div class="input-groupi">
+    <label for="ganho">Valor ganho (R$):</label>
+    <input type="number" id="ganho" step="0.01">
+    <label for="porcentagem">Porcentagem (%):</label>
+    <input type="number" id="porcentagem" step="0.01" value="10">
+    <button onclick="registrar()">Registrar</button>
+    
+    
+  </div>
+
+
+
+  <h3>Total guardado: R$<span id="total">0.00</span></h3>
+  <div id="estimativas" style="margin-top: 20px;"></div>
+
+  <h2>Histórico</h2>
+  <ul id="historico"></ul>
+
+  <div class="input-group">
+    <button onclick="exportarJSON()">Exportar JSON</button>
+    <input type="file" id="importarArquivo" onchange="importarArquivo()">
+  </div>
+
+  <script>
+    let db;
+    let totalGuardado = 0;
+
+    const request = indexedDB.open("InvestimentoDB", 1);
+
+    request.onupgradeneeded = function(event) {
+      db = event.target.result;
+      db.createObjectStore("registros", { keyPath: "id", autoIncrement: true });
+    };
+
+    request.onsuccess = function(event) {
+      db = event.target.result;
+      carregarHistorico();
+    };
+
+    function registrar() {
+      const ganho = parseFloat(document.getElementById("ganho").value);
+      const porcentagem = parseFloat(document.getElementById("porcentagem").value);
+
+      if (isNaN(ganho) || isNaN(porcentagem) || ganho <= 0 || porcentagem <= 0) {
+        alert("Preencha os campos corretamente.");
+        return;
+      }
+
+      const valorGuardado = ganho * (porcentagem / 100);
+      const novoTotal = 0; // Não precisamos mais dele!
+      const dataHora = new Date().toLocaleString('pt-BR');
+
+      const registro = {
+    dataHora,
+    ganho,
+    porcentagem,
+    valorGuardado
+    };
+
+
+      const transacao = db.transaction(["registros"], "readwrite");
+      const store = transacao.objectStore("registros");
+      store.add(registro);
+
+      transacao.oncomplete = () => {
+        document.getElementById("ganho").value = "";
+        document.getElementById("porcentagem").value = "10";
+        carregarHistorico();
+      };
+    }
+
+    function carregarHistorico() {
+  const ul = document.getElementById("historico");
+  const totalSpan = document.getElementById("total");
+  ul.innerHTML = "";
+  totalGuardado = 0;
+
+  const transacao = db.transaction(["registros"], "readonly");
+  const store = transacao.objectStore("registros");
+  const request = store.getAll();
+
+  request.onsuccess = function(event) {
+    const registros = event.target.result;
+    registros.forEach(reg => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        ${reg.dataHora} - Ganhou R$${reg.ganho.toFixed(2)} | Guardou ${reg.porcentagem}% (R$${reg.valorGuardado.toFixed(2)})
+        <div class="registro-actions">
+          <button onclick="deletar(${reg.id})">Deletar</button>
+        </div>
+      `;
+      ul.appendChild(li);
+      totalGuardado += reg.valorGuardado;
+    });
+
+    totalSpan.textContent = totalGuardado.toFixed(2);
+    atualizarEstimativas(registros);
+
+  };
+}
+
+
+    function deletar(id) {
+      const transacao = db.transaction(["registros"], "readwrite");
+      const store = transacao.objectStore("registros");
+      store.delete(id);
+      transacao.oncomplete = carregarHistorico;
+    }
+
+    function exportarJSON() {
+      const transacao = db.transaction(["registros"], "readonly");
+      const store = transacao.objectStore("registros");
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const data = JSON.stringify(request.result, null, 2);
+        downloadArquivo(data, "registros.json", "application/json");
+      };
+    }
+
+    function downloadArquivo(content, filename, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importarArquivo() {
+      const input = document.getElementById("importarArquivo");
+      const file = input.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function() {
+        const data = JSON.parse(reader.result);
+        const transacao = db.transaction(["registros"], "readwrite");
+        const store = transacao.objectStore("registros");
+
+        data.forEach(r => store.add(r));
+        transacao.oncomplete = carregarHistorico;
+      };
+
+      if (file) {
+        reader.readAsText(file);
+      }
+    }
+    //----------------
+    function atualizarEstimativas(registros) {
+  const estimativasDiv = document.getElementById("estimativas");
+
+  if (registros.length === 0) {
+    estimativasDiv.innerHTML = `<em>Nenhum dado ainda para calcular estimativas.</em>`;
+    return;
+  }
+
+  const totalGuardado = registros.reduce((soma, r) => soma + r.valorGuardado, 0);
+  const diasRegistrados = registros.length;
+  const mediaDiaria = totalGuardado / diasRegistrados;
+  const estimativaMensal = mediaDiaria * 30;
+  const estimativaAnual = mediaDiaria * 365;
+
+  // Juros compostos
+  const taxaMensal = 0.01; // 1%
+  const meses = 12;
+  const valorComJuros = estimativaMensal * ((Math.pow(1 + taxaMensal, meses) - 1) / taxaMensal);
+
+  estimativasDiv.innerHTML = `
+    <strong>Estimativas com base em ${diasRegistrados} dia(s):</strong><br>
+    Média diária guardada: R$${mediaDiaria.toFixed(2)}<br>
+    Estimativa mensal: R$${estimativaMensal.toFixed(2)}<br>
+    Estimativa anual (sem juros): R$${estimativaAnual.toFixed(2)}<br>
+    <br>
+    <strong>💹 Estimativa com 1% ao mês (juros compostos):</strong><br>
+    Em 12 meses: <span style="color: #76ff03;">R$${valorComJuros.toFixed(2)}</span>
+  `;
+}
+//-------------
+  </script>
+
+</body>
+</html>
